@@ -3,14 +3,45 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
 	"os/exec"
 
+	"cloud.google.com/go/firestore"
 	firebase "firebase.google.com/go"
 	"google.golang.org/api/option"
 )
+
+var App *firebase.App
+var Ctx context.Context
+
+type Log struct {
+	Timestamp string `json:"timestamp"`
+	Fields    struct {
+		Client        string `json:"client"`
+		RemoteUser    string `json:"remote_user"`
+		XForwardedFor string `json:"x_forwarded_for"`
+		HitMiss       string `json:"hit_miss"`
+		Bytes         int    `json:"bytes"`
+		DurationUsec  int    `json:"duration_usec"`
+		Status        int    `json:"status"`
+		Request       string `json:"request"`
+		Virtualhost   string `json:"virtualhost"`
+		Method        string `json:"method"`
+		TimeFirstByte string `json:"time_first_byte"`
+		Handling      string `json:"handling"`
+		Referrer      string `json:"referrer"`
+		UserAgent     string `json:"user_agent"`
+	} `json:"fields"`
+}
+
+func (l *Log) Parse(s string) error {
+	bytes := []byte(s)
+
+	return json.Unmarshal(bytes, &l)
+}
 
 func varnishStat() {
 
@@ -23,9 +54,13 @@ func varnishStat() {
 	}
 
 	scanner := bufio.NewScanner(cmdReader)
+	client := connFirestore()
+	defer client.Close()
 	go func() {
 		for scanner.Scan() {
-			sendLog(scanner.Text())
+			log.Print("Error caught")
+			log.Print(scanner.Text())
+			sendLog500(client, scanner.Text())
 		}
 	}()
 
@@ -42,27 +77,44 @@ func varnishStat() {
 	}
 }
 
-func sendLog(log string) {
-	fmt.Println(log)
-}
+func sendLog500(client *firestore.Client, log string) {
 
-func main() {
-	ctx := context.Background()
-	opt := option.WithCredentialsFile("monitor-key.json")
-	app, err := firebase.NewApp(ctx, nil, opt)
-	if err != nil {
+	logStruct := Log{}
+	if err := logStruct.Parse(log); err != nil {
 		panic(err)
 	}
 
-	client, err := app.Firestore(ctx)
+	ctx := context.Background()
+	_, _, err := client.Collection("errors-500").Add(ctx, logStruct)
 	if err != nil {
-		log.Fatalln(err)
+		panic(err)
 	}
-	defer client.Close()
+}
 
+func connFirebase() {
+	log.Print("Connecting Firabase")
+	Ctx := context.Background()
+	opt := option.WithCredentialsFile("monitor-key.json")
+	app, err := firebase.NewApp(Ctx, nil, opt)
 	if err != nil {
-		log.Fatalf("Failed adding alovelace: %v", err)
+		panic(err)
 	}
+	App = app
+	log.Print("Firebase Connected")
+}
 
+func connFirestore() *firestore.Client {
+	log.Print("Connecting Firestore and creating client")
+	ctx := context.Background()
+	client, err := App.Firestore(ctx)
+	if err != nil {
+		panic(err)
+	}
+	log.Print("Firestone Connected")
+	return client
+}
+
+func main() {
+	connFirebase()
 	varnishStat()
 }
