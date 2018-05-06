@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"log"
 	"os"
@@ -15,7 +16,6 @@ import (
 )
 
 var App *firebase.App
-var Ctx context.Context
 
 type Log struct {
 	Timestamp string `json:"timestamp"`
@@ -45,7 +45,7 @@ func (l *Log) Parse(s string) error {
 
 func varnishStat() {
 
-	cmd := exec.Command("/bin/sh", "./ncsa.sh")
+	cmd := exec.Command("/bin/sh", "./sh/ncsa.sh")
 
 	cmdReader, err := cmd.StdoutPipe()
 	if err != nil {
@@ -91,10 +91,10 @@ func sendLog500(client *firestore.Client, log string) {
 	}
 }
 
-func connFirebase() {
+func connFirebase(keyPath string) {
 	log.Print("Connecting Firabase")
 	Ctx := context.Background()
-	opt := option.WithCredentialsFile("monitor-key.json")
+	opt := option.WithCredentialsFile(keyPath)
 	app, err := firebase.NewApp(Ctx, nil, opt)
 	if err != nil {
 		panic(err)
@@ -115,6 +115,9 @@ func connFirestore() *firestore.Client {
 }
 
 func main() {
-	connFirebase()
+	keyPath := flag.String("keyPath", "monitor-key.json", "a string")
+	flag.Parse()
+
+	connFirebase(*keyPath)
 	varnishStat()
 }
