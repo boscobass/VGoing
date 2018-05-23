@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"time"
 
 	"cloud.google.com/go/firestore"
 	firebase "firebase.google.com/go"
@@ -18,7 +19,7 @@ import (
 var App *firebase.App
 
 type Log struct {
-	Timestamp string `json:"timestamp"`
+	Timestamp time.Time
 	Fields    struct {
 		Client        string `json:"client"`
 		RemoteUser    string `json:"remote_user"`
@@ -39,13 +40,18 @@ type Log struct {
 
 func (l *Log) Parse(s string) error {
 	bytes := []byte(s)
-
-	return json.Unmarshal(bytes, &l)
+	err := json.Unmarshal(bytes, &l)
+	l.Timestamp = time.Now()
+	return err
 }
 
 func varnishStat() {
 
-	cmd := exec.Command("/bin/sh", "./sh/ncsa.sh")
+	cmd := exec.Command("/usr/bin/varnishncsa",
+		"-F",
+		`{"fields" : {"client":"%h", "remote_user" : "%u", "x_forwarded_for" : "%{X-Forwarded-For}i", "hit_miss":" %{Varnish:hitmiss}x", "bytes": %b, "duration_usec": %D, "status": %s, "request":"%r", "virtualhost":"%{host}i", "method":"%m", "time_first_byte" : "%{Varnish:time_firstbyte}x", "handling" : "%{Varnish:handling}x", "referrer":"%{Referrer}i", "user_agent":"%{User-agent}i"}}`,
+		"-q",
+		`RespStatus >= 500 or BerespStatus >= 500`)
 
 	cmdReader, err := cmd.StdoutPipe()
 	if err != nil {
@@ -115,7 +121,7 @@ func connFirestore() *firestore.Client {
 }
 
 func main() {
-	keyPath := flag.String("keyPath", "monitor-key.json", "a string")
+	keyPath := flag.String("keyPath", "monitor-key.json", "Key path")
 	flag.Parse()
 
 	connFirebase(*keyPath)
